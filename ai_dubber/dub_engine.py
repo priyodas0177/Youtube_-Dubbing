@@ -5,8 +5,9 @@ from gtts import gTTS
 from pydub import AudioSegment
 from pydub import AudioSegment
 
+
+# here copy and past key 
 API_KEY=("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")
-#API_KEY=os.getenv("OPENROUTER_API_KEY")
 
 client=OpenAI(api_key=API_KEY, base_url="https://openrouter.ai/api/v1")
 
