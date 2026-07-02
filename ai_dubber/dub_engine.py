@@ -1,9 +1,9 @@
-import os
-from faster_whisper import WhisperModel
-from openai import OpenAI
-from gtts import gTTS
-from pydub import AudioSegment
-from pydub import AudioSegment
+import os #Used for working with files and folders.
+from faster_whisper import WhisperModel #Speech to Text converter
+from openai import OpenAI #Text Translation
+from gtts import gTTS #Google Text-to-Speech.
+from pydub import AudioSegment #used for audio manipulation and processing (merge audio,cut audio, add silence, change speed).
+
 
 
 # here copy and past key 
@@ -15,7 +15,7 @@ whisper=WhisperModel("small", device="cpu",compute_type="int8")
 
 
 def speed_change(sound, speed=1.0):
-    altered = sound._spawn(
+    altered = sound._spawn( #spawn is create a new audio segment
         sound.raw_data,
         overrides={
             "frame_rate": int(sound.frame_rate* speed)
@@ -25,15 +25,15 @@ def speed_change(sound, speed=1.0):
 
 
 def create_dub(video_audio, output_audio, beam_size=5):
-    segments,_=whisper.transcribe(
+    segments,_=whisper.transcribe( #audio divide into segments
         video_audio,
-        beam_size=beam_size) #audio divide into segments
+        beam_size=beam_size) 
     segments=list(segments)
 
     original=AudioSegment.from_file(video_audio) #load original audio
     final=AudioSegment.silent(duration=len(original)) #create empty audio We'll place Bangla speech onto this timeline.
 
-    temp_dir="temp"
+    temp_dir="temp" #Stores temporary MP3 files.
     os.makedirs(temp_dir,exist_ok=True)
 
     for i, seg in enumerate(segments):
@@ -41,7 +41,7 @@ def create_dub(video_audio, output_audio, beam_size=5):
         end=int(seg.end*1000)
         duration=end-start
 
-        text=seg.text.strip()
+        text=seg.text.strip() #remove extra spaces from text
         if not text:
             continue
 
@@ -78,6 +78,7 @@ Rules:
             bangla=text
 
         tts_file=f"{temp_dir}/segment_{i}.mp3" #create tts files
+
         gtts=gTTS( #genarate bangla voice 
             text=bangla,
             lang="bn",
@@ -140,7 +141,7 @@ Rules:
             attempt+=1
 
         target_ms=duration
-        if len(audio)>target_ms:
+        if len(audio)>target_ms: #if original audio is 3s and generate bangala is 4s then going to if block
             speed_factor=len(audio)/target_ms
             speed_factor=min(speed_factor,1.20)
 
