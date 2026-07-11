@@ -1,4 +1,4 @@
-from dub_engine import create_dub
+from ai_dubber.dub_engine import create_dub
 from video_utility import merge_video
 
 create_dub(

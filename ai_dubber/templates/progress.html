@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<title>AI Video Dubbing</title>
+
+<style>
+
+body{
+
+font-family:Arial;
+
+width:700px;
+
+margin:60px auto;
+
+}
+
+.progress{
+
+width:100%;
+
+background:#ddd;
+
+height:30px;
+
+border-radius:10px;
+
+overflow:hidden;
+
+}
+
+.bar{
+
+height:30px;
+
+width:0%;
+
+background:#28a745;
+
+transition:.5s;
+
+}
+
+</style>
+
+</head>
+
+<body>
+
+<h2>AI Video Dubbing</h2>
+
+<div class="progress">
+
+<div class="bar" id="bar"></div>
+
+</div>
+
+<h3 id="percent">0%</h3>
+
+<h3 id="status">Starting...</h3>
+
+<p id="segment"></p>
+
+<br>
+
+<a id="downloadBtn" href="#" style="display:none;">
+    <button>⬇ Download Again</button>
+</a>
+
+<script>
+
+let downloaded = false;
+let timer = setInterval(update, 1000);
+
+function update() {
+
+    fetch("/progress")
+    .then(r => r.json())
+    .then(data => {
+
+        document.getElementById("bar").style.width = data.percent + "%";
+        document.getElementById("percent").innerHTML = data.percent + "%";
+        document.getElementById("status").innerHTML = data.status;
+        document.getElementById("segment").innerHTML = data.segment;
+
+        if (data.finished && !downloaded) {
+
+            downloaded = true;
+
+            clearInterval(timer);
+
+            const a = document.createElement("a");
+            a.href = "/result/" + data.filename;
+            a.download = "";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            document.getElementById("bar").style.width = "100%";
+            document.getElementById("percent").innerHTML = "100%";
+            document.getElementById("status").innerHTML = "✅ Download Completed";
+            document.getElementById("segment").innerHTML = "Your Bangla dubbed video is ready.";
+
+            // Show Download Again button
+            document.getElementById("downloadBtn").href = "/result/" + data.filename;
+            document.getElementById("downloadBtn").style.display = "inline-block";
+
+        }
+
+    });
+
+}
+
+update();
+
+</script>
+
+</body>
+
+</html>

@@ -2,7 +2,7 @@ import yt_dlp
 import os
 
 def download_video(url, outlput_path):
-    os.mkdir(os.path.dirname(outlput_path),exist_ok=True)
+    os.makedirs(os.path.dirname(outlput_path), exist_ok=True)
 
     ydl_opts={
         "format":"bestvideo+bestaudio/best",

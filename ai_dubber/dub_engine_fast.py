@@ -1,21 +1,20 @@
-import os
-from faster_whisper import WhisperModel
-from openai import OpenAI
-#from gtts import gTTS
-import edge_tts, asyncio
-from pydub import AudioSegment
-from pydub import AudioSegment
+import os #Used for working with files and folders.
+from faster_whisper import WhisperModel #Speech to Text converter
+from openai import OpenAI #Text Translation
+from gtts import gTTS #Google Text-to-Speech.
+from pydub import AudioSegment #used for audio manipulation and processing (merge audio,cut audio, add silence, change speed).
 
+
+
+# here copy and past key 
 API_KEY=("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")
-#API_KEY=os.getenv("OPENROUTER_API_KEY")
-
 client=OpenAI(api_key=API_KEY, base_url="https://openrouter.ai/api/v1")
 
-whisper=WhisperModel("base", device="cpu",compute_type="int8")
+whisper=WhisperModel("small", device="cpu",compute_type="int8")
 
 
 def speed_change(sound, speed=1.0):
-    altered = sound._spawn(
+    altered = sound._spawn( #spawn is create a new audio segment
         sound.raw_data,
         overrides={
             "frame_rate": int(sound.frame_rate* speed)
@@ -23,17 +22,87 @@ def speed_change(sound, speed=1.0):
     )
     return altered.set_frame_rate(sound.frame_rate)
 
+def translate_batch(texts, batch_size=20):
+    translated = []
+
+    for start in range(0, len(texts), batch_size):
+        batch = texts[start:start + batch_size]
+        print(f"Translating batch {start+1} - {start+len(batch)}")
+
+        numbered = "\n".join(
+            f"{i+1}. {t}" for i, t in enumerate(batch)
+        )
+
+        try:
+            response = client.chat.completions.create(
+                model="openai/gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """
+You are a professional Bengali dubbing translator.
+
+Translate every numbered sentence into natural Bangla.
+
+Rules:
+- Keep the numbering exactly the same.
+- Do not skip any number.
+- Do not merge sentences.
+- Return only numbered Bangla translations.
+"""
+                    },
+                    {
+                        "role": "user",
+                        "content": numbered
+                    }
+                ]
+            )
+
+            output = response.choices[0].message.content.strip()
+
+            lines = output.split("\n")
+
+            for line in lines:
+                if "." in line:
+                    translated.append(line.split(".", 1)[1].strip())
+
+        except Exception as e:
+            print(e)
+            translated.extend(batch)
+
+    return translated
+
+
+
+
 
 def create_dub(video_audio, output_audio, beam_size=5):
-    segments,_=whisper.transcribe(
+    segments, info =whisper.transcribe( #audio divide into segments
         video_audio,
-        beam_size=beam_size) #audio divide into segments
+        beam_size=beam_size,
+        vad_filter=False,
+        condition_on_previous_text=True,
+        language="en"
+    )
     segments=list(segments)
+    texts=[]
+    for seg in segments:
+        texts.append(seg.text.strip())
+
+    bangla_texts=translate_batch(texts)
+    print(f"total segments: {len(segments)}")
+    print(f"translations: {len(bangla_texts)}")
+
+    for i, seg in enumerate(segments):
+        print(
+            f"{i+1}: {seg.start:.2f} -> {seg.end:.2f} "
+            f"({seg.end-seg.start:.2f}s) | {repr(seg.text)}"
+        )
 
     original=AudioSegment.from_file(video_audio) #load original audio
     final=AudioSegment.silent(duration=len(original)) #create empty audio We'll place Bangla speech onto this timeline.
 
-    temp_dir="temp"
+    temp_dir="temp" #Stores temporary MP3 files.
     os.makedirs(temp_dir,exist_ok=True)
 
     for i, seg in enumerate(segments):
@@ -41,43 +110,17 @@ def create_dub(video_audio, output_audio, beam_size=5):
         end=int(seg.end*1000)
         duration=end-start
 
-        text=seg.text.strip()
+        text=seg.text.strip() #remove extra spaces from text
         if not text:
             continue
 
-        try:
-            res=client.chat.completions.create( #send request to OpenAI API for translation
-                model="openai/gpt-4o-mini",
-                messages=[   #First GPT call → Translate English → Natural Bangla.
-                    {
-                    "role":"system",
-                    "content":"""
-You are a professional Bengali dubbing translator.
-Translate the following English text into natural spoken Bangla.
-               
-Rules:
-1. Preserve the exact meaning.
-2. Write as people naturally speak in Bangladesh.
-3. Avoid literal word-for-word translation.
-4. Use short, conversational sentences.
-5. Keep the original emotion and tone.
-6. Make it suitable for voice narration and dubbing.
-7. Do not use overly formal or bookish Bangla.
-8. Do not add or remove information unless necessary for natural speech.
-9. Return only the Bangla translation.
-                    """
-                    },
-                    {"role":"user","content":text}
-                ]
-                #Hello everyone welcome to my channel -> gpt return সবাইকে আমার চ্যানেলে স্বাগতম।
-            )
-            bangla=res.choices[0].message.content.strip()
-        
-        except Exception as e:
-            print(f"Translation failed {e}")
+        if i< len(bangla_texts):
+            bangla=bangla_texts[i]
+        else:
             bangla=text
 
         tts_file=f"{temp_dir}/segment_{i}.mp3" #create tts files
+
         gtts=gTTS( #genarate bangla voice 
             text=bangla,
             lang="bn",
@@ -95,7 +138,7 @@ Rules:
 # If Bangla becomes much longer,
 # ask GPT to shorten it while preserving meaning.
         attempt=0
-        max_attempts=3
+        max_attempts=0
 
         while ratio>1.2 and attempt < max_attempts:
             try:
@@ -140,7 +183,7 @@ Rules:
             attempt+=1
 
         target_ms=duration
-        if len(audio)>target_ms:
+        if len(audio)>target_ms: #if original audio is 3s and generate bangala is 4s then going to if block
             speed_factor=len(audio)/target_ms
             speed_factor=min(speed_factor,1.20)
 
