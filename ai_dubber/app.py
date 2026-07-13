@@ -4,13 +4,15 @@ import uuid
 import subprocess
 import json
 from threading import Thread
-
+from dotenv import load_dotenv
 from youtube_downloder import download_video
-from dub_engine import create_dub
+#from ai_dubber.edge_dub_engine import create_dub
+from ai_dubber.gtts_dub_engine import create_dub
 from video_utility import extract_audio, merge_video
 
+load_dotenv()  # Load environment variables from .env file
 app=Flask(__name__)
-app.secret_key="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"
+app.secret_key=os.getenv("FLASK_SECRET_KEY")
 
 UPLOAD_FOLDER="uploads"
 OUTPUT_FOLDER="outputs"

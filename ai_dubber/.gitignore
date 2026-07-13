@@ -1,0 +1,25 @@
+# Environment
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+
+# Virtual environments
+.myvenv3.11.15/
+venv/
+.venv/
+
+# Temporary folders
+uploads/
+outputs/
+temp/
+
+# VS Code
+.vscode/
+
+# Logs
+*.log

@@ -1,13 +1,14 @@
 import os #Used for working with files and folders.
 from faster_whisper import WhisperModel #Speech to Text converter
 from openai import OpenAI #Text Translation
-import asyncio, edge_tts #Google Text-to-Speech.
+import asyncio, edge_tts #edge tts
 from pydub import AudioSegment #used for audio manipulation and processing (merge audio,cut audio, add silence, change speed).
+from dotenv import load_dotenv #used for loading environment variables from a .env file
 
-
-
+load_dotenv()
+API_KEY=os.getenv("OPENROUTER_API_KEY")
 # here copy and past key 
-API_KEY=("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")
+#API_KEY=("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")
 client=OpenAI(api_key=API_KEY, base_url="https://openrouter.ai/api/v1")
 
 whisper=WhisperModel("medium", device="cpu",compute_type="int8")

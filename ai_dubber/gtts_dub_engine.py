@@ -68,6 +68,7 @@ def create_dub(video_audio, output_audio, beam_size=5, progress_callback=None):
         try:
             res=client.chat.completions.create( #send request to OpenAI API for translation
                 model="openai/gpt-4o-mini",
+                max_tokens=2000,
                 messages=[   #First GPT call → Translate English → Natural Bangla.
                     {
                     "role":"system",
