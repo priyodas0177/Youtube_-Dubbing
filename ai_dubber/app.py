@@ -7,7 +7,7 @@ from threading import Thread
 from dotenv import load_dotenv
 from youtube_downloder import download_video
 #from ai_dubber.edge_dub_engine import create_dub
-from ai_dubber.gtts_dub_engine import create_dub
+from dub_engine import create_dub
 from video_utility import extract_audio, merge_video
 
 load_dotenv()  # Load environment variables from .env file

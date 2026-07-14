@@ -11,7 +11,7 @@ API_KEY=os.getenv("OPENROUTER_API_KEY")
 #API_KEY=("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")
 client=OpenAI(api_key=API_KEY, base_url="https://openrouter.ai/api/v1")
 
-whisper=WhisperModel("medium", device="cpu",compute_type="int8")
+whisper=WhisperModel("small", device="cpu",compute_type="int8")
 
 
 def speed_change(sound, speed=1.0):
@@ -74,8 +74,8 @@ def create_dub(video_audio, output_audio, beam_size=5, progress_callback=None):
 
         try:
             res=client.chat.completions.create( #send request to OpenAI API for translation
-                model="openai/gpt-4o-mini",
-                max_tokens=3000,
+                model="openai/gpt-4.1-mini",
+                max_tokens=2500,
                 messages=[   #First GPT call → Translate English → Natural Bangla.
                     {
                     "role":"system",
@@ -130,8 +130,8 @@ Rules:
         while ratio>1.2 and attempt < max_attempts:
             try:
                 short_res=client.chat.completions.create(
-                    model="openai/gpt-4o-mini",
-                    max_tokens=3000,
+                    model="openai/gpt-4.1-mini",
+                    max_tokens=2500,
                     messages=[
                         {"role":"system",
                          "content":f"""
