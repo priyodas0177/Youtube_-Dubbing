@@ -1,195 +1,407 @@
-import os #Used for working with files and folders.
-from faster_whisper import WhisperModel #Speech to Text converter
-from openai import OpenAI #Text Translation
-import asyncio, edge_tts #edge tts
-from pydub import AudioSegment #used for audio manipulation and processing (merge audio,cut audio, add silence, change speed).
-from dotenv import load_dotenv #used for loading environment variables from a .env file
+import os, time, re 
+import asyncio
+from faster_whisper import WhisperModel
+import edge_tts
+from pydub import AudioSegment
+from dotenv import load_dotenv
+from openai import OpenAI
 
 load_dotenv()
-API_KEY=os.getenv("OPENROUTER_API_KEY")
-# here copy and past key 
-#API_KEY=("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")
-client=OpenAI(api_key=API_KEY, base_url="https://openrouter.ai/api/v1")
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
 
-whisper=WhisperModel("small", device="cpu",compute_type="int8")
+client = OpenAI(
+    base_url="https://integrate.api.nvidia.com/v1",
+    api_key=NVIDIA_API_KEY
+)
 
+# Use 'cpu' or 'cuda' explicitly. 'auto' can sometimes spend time autodetecting.
+whisper = WhisperModel("small", device="auto", compute_type="int8")
+
+TTS_WORKERS = 8
+TTS_SEMAPHORE = asyncio.Semaphore(TTS_WORKERS)
 
 def speed_change(sound, speed=1.0):
-    altered = sound._spawn( #spawn is create a new audio segment
+    altered = sound._spawn(
         sound.raw_data,
-        overrides={
-            "frame_rate": int(sound.frame_rate* speed)
-        }
+        overrides={"frame_rate": int(sound.frame_rate * speed)}
     )
     return altered.set_frame_rate(sound.frame_rate)
 
-async def edge_tts_generate(text, output_file):
-    communicate=edge_tts.Communicate(
-        text=text,
-        voice="bn-BD-NabanitaNeural"
-    )
-    await communicate.save(output_file)
-    
-# def create_dub(video_audio, output_audio, beam_size=5):
-#     segments,_=whisper.transcribe( #audio divide into segments
-#         video_audio,
-#         beam_size=beam_size) 
-#     segments=list(segments)
 
-def create_dub(video_audio, output_audio, beam_size=5, progress_callback=None):
-    segments, info =whisper.transcribe( #audio divide into segments
-        video_audio,
-        beam_size=beam_size,
-        vad_filter=False,
-        condition_on_previous_text=True,
-        language="en"
-    )
-    segments=list(segments)
-    print(f"total segments: {len(segments)}")
-
-    for i, seg in enumerate(segments):
-        print(
-            f"{i+1}: {seg.start:.2f} -> {seg.end:.2f} "
-            f"({seg.end-seg.start:.2f}s) | {repr(seg.text)}"
-        )
-       
-
-    original=AudioSegment.from_file(video_audio) #load original audio
-    final=AudioSegment.silent(duration=len(original)) #create empty audio We'll place Bangla speech onto this timeline.
-
-    temp_dir="temp" #Stores temporary MP3 files.
-    os.makedirs(temp_dir,exist_ok=True)
-
-    for i, seg in enumerate(segments):
-        if progress_callback:
-            progress_callback(i+1, len(segments))
-        
-        start=int(seg.start*1000)
-        end=int(seg.end*1000)
-        duration=end-start
-
-        text=seg.text.strip() #remove extra spaces from text
-        if not text:
-            continue
-
+async def edge_tts_generate(text, output_file, retries=3):
+    for attempt in range(retries):
         try:
-            res=client.chat.completions.create( #send request to OpenAI API for translation
-                model="openai/gpt-4.1-mini",
-                max_tokens=2500,
-                messages=[   #First GPT call → Translate English → Natural Bangla.
-                    {
-                    "role":"system",
-                    "content":"""
-You are a professional Bengali dubbing translator.
-Translate the following English text into natural spoken Bangla.
-               
-Rules:
-1. Preserve the exact meaning.
-2. Write as people naturally speak in Bangladesh.
-3. Avoid literal word-for-word translation.
-4. Use short, conversational sentences.
-5. Keep the original emotion and tone.
-6. Make it suitable for voice narration and dubbing.
-7. Do not use overly formal or bookish Bangla.
-8. Do not add or remove information unless necessary for natural speech.
-9. Return only the Bangla translation.
-                    """
-                    },
-                    {"role":"user","content":text}
-                ]
-                #Hello everyone welcome to my channel -> gpt return সবাইকে আমার চ্যানেলে স্বাগতম।
+            communicate = edge_tts.Communicate(
+                text=text,
+                voice="bn-BD-NabanitaNeural"
             )
-            bangla=res.choices[0].message.content.strip()
-        
+
+            await communicate.save(output_file)
+            return
+
         except Exception as e:
-            print(f"Translation failed {e}")
-            bangla=text
+            print(f"TTS attempt {attempt + 1} failed: {e}")
 
-        tts_file=f"{temp_dir}/segment_{i}.mp3" #create tts files
+            if attempt < retries - 1:
+                await asyncio.sleep(2 ** attempt)
+            else:
+                raise
 
-        asyncio.run(
-            edge_tts_generate(
-                bangla,
-                tts_file
-            )
-        )
+MODELS = [
+    #"deepseek-ai/deepseek-v4-flash",
+    "qwen/qwen3-next-80b-a3b-instruct"
+]
 
-
-        audio=AudioSegment.from_file(tts_file)
-        original_duration=max(duration/1000, 0.1)
-        tts_duration=len(audio)/1000
-
-        ratio=tts_duration/original_duration
-
-
-# If Bangla becomes much longer,
-# ask GPT to shorten it while preserving meaning.
-        attempt=0
-        max_attempts=3
-
-        while ratio>1.2 and attempt < max_attempts:
-            try:
-                short_res=client.chat.completions.create(
-                    model="openai/gpt-4.1-mini",
-                    max_tokens=2500,
-                    messages=[
-                        {"role":"system",
-                         "content":f"""
+SHORTEN_PROMPT = """
 You are a professional Bengali dubbing editor.
 
 Rewrite the following Bangla sentence for AI voice dubbing.
+
 Rules:
 1. Preserve the exact meaning.
 2. Keep all important information.
-3. Remove unnecessary filler words.
-4. Use shorter, natural spoken Bangla.
-5. Make it sound like a real Bangladeshi speaker.
-6. Avoid formal or bookish language.
-7. Keep the same emotion and tone. 
-8. Must fit approximately {original_duration:.1f} seconds."""},
-                    {"role":"user","content":bangla}
-                    ]
-                )
-                shorter_bangla=(short_res.choices[0].message.content.strip())
+3. Make it shorter and natural for spoken Bangla.
+4. Use everyday Bangladeshi Bangla.
+5. Avoid formal or bookish language.
+6. The result should fit approximately {duration:.1f} seconds.
+7. Return only the rewritten Bangla sentence.
+"""
 
-                asyncio.run(
-                    edge_tts_generate(
-                        bangla,
-                        tts_file
+# We make the translator helper helper function
+def shorten_translation(bangla, original_duration, retries=2):
+
+    prompt = SHORTEN_PROMPT.format(
+        duration=original_duration
+    )
+
+    for attempt in range(retries):
+
+        try:
+
+            response = client.chat.completions.create(
+
+                model="qwen/qwen3-next-80b-a3b-instruct",
+
+                messages=[
+                    {
+                        "role": "system",
+                        "content": prompt
+                    },
+                    {
+                        "role": "user",
+                        "content": bangla
+                    }
+                ],
+
+                temperature=0.3,
+                top_p=0.7,
+                max_tokens=1024
+            )
+
+            result = response.choices[0].message.content
+
+            if result:
+                return result.strip()
+
+
+        except Exception as e:
+
+            print(
+                f"Shorten attempt {attempt + 1} failed: {e}"
+            )
+
+            if attempt < retries - 1:
+                time.sleep(2 ** attempt)
+
+
+    print("Shortening failed, using original Bangla.")
+    return bangla
+
+def translate_batch(texts):
+
+    prompt = "Translate each English sentence into natural spoken Bangla.\n\n"
+
+    for i, text in enumerate(texts):
+        prompt += f"{i+1}. {text}\n"
+
+
+    response = client.chat.completions.create(
+
+        model="qwen/qwen3-next-80b-a3b-instruct",
+
+        messages=[
+            {
+                "role":"system",
+                "content":
+                """
+You are a professional Bengali dubbing translator.
+
+Rules:
+1. Preserve meaning.
+2. Natural Bangladeshi spoken Bangla.
+3. Do not merge sentences.
+4. Keep numbering.
+5. Return only translations.
+"""
+            },
+            {
+                "role":"user",
+                "content":prompt
+            }
+        ],
+
+        temperature=0.3,
+        top_p=0.7,
+        max_tokens=4096
+    )
+
+
+    output = response.choices[0].message.content.strip()
+
+    translations=[]
+
+    for line in output.split("\n"):
+
+        line = line.strip()
+
+        match = re.match(
+            r"^\d+[\.\)]\s*(.*)",
+            line
+        )
+
+        if match:
+            translations.append(
+                match.group(1).strip()
+            )
+
+    print(
+        "English count:",
+        len(texts)
+    )
+
+    print(
+        "Bangla count:",
+        len(translations)
+    )
+    return translations
+
+async def process_single_segment(
+    i,
+    seg,
+    bangla,
+    temp_dir,
+    progress_callback,
+    total_segments
+):
+
+    try:
+
+        start = int(seg.start * 1000)
+        end = int(seg.end * 1000)
+
+        duration = end - start
+        original_duration = max(duration / 1000, 0.1)
+
+        if not bangla.strip():
+            return None
+
+        tts_file = os.path.join(
+            temp_dir,
+            f"segment_{i:04d}.mp3"
+        )
+
+        # ---------- First TTS ----------
+
+        async with TTS_SEMAPHORE:
+            await edge_tts_generate(
+                bangla,
+                tts_file
+            )
+
+        audio = AudioSegment.from_file(tts_file)
+
+        tts_duration = len(audio) / 1000
+
+        ratio = tts_duration / original_duration
+
+        # ---------- Duration Fix ----------
+
+        attempt = 0
+
+        while ratio > 1.2 and attempt < 1:
+
+            bangla = await asyncio.to_thread(
+                shorten_translation,
+                bangla,
+                original_duration
+            )
+
+            async with TTS_SEMAPHORE:
+                await edge_tts_generate(
+                    bangla,
+                    tts_file
+                )
+
+            audio = AudioSegment.from_file(
+                tts_file
+            )
+
+            tts_duration = len(audio) / 1000
+
+            ratio = tts_duration / original_duration
+
+            attempt += 1
+
+        # ---------- Speed Fix ----------
+
+        target_ms = duration
+
+        if len(audio) > target_ms:
+
+            speed = len(audio) / target_ms
+
+            speed = min(speed, 1.20)
+
+            audio = speed_change(
+                audio,
+                speed=speed
+            )
+
+        if len(audio) < target_ms:
+
+            audio += AudioSegment.silent(
+                target_ms - len(audio)
+            )
+
+        audio = audio[:target_ms]
+
+        audio.export(
+            tts_file,
+            format="mp3"
+        )
+
+        if progress_callback:
+            progress_callback(
+                i + 1,
+                total_segments
+            )
+
+        return {
+
+            "index": i,
+
+            "start": start,
+
+            "tts_file": tts_file
+
+        }
+
+    except Exception as e:
+
+        print(f"Segment {i} failed: {e}")
+
+        return None
+
+
+
+async def create_dub_async(video_audio, output_audio, beam_size=2, progress_callback=None):
+    # 1. Transcribe (Heavy local CPU/GPU bound task)
+    segments, info = whisper.transcribe(
+        video_audio,
+        beam_size=beam_size,
+        vad_filter=True,
+        condition_on_previous_text=True,
+        language="en"
+    )
+    segments = list(segments)
+    total_segments = len(segments)
+    print(f"Total segments: {total_segments}")
+
+    temp_dir = "temp"
+    os.makedirs(temp_dir, exist_ok=True)
+
+    # 2. Parallel translation & TTS generation (Huge speedup here!)
+    # We create async tasks for all segments and run them concurrently
+    tasks=[]
+    BATCH_SIZE = 30
+
+    for batch_start in range(0, total_segments, BATCH_SIZE):
+
+        batch = segments[batch_start:batch_start+BATCH_SIZE]
+
+        english = [
+            s.text.strip()
+            for s in batch
+        ]
+
+        bangla = await asyncio.to_thread(
+            translate_batch,
+            english
+        )
+
+        for offset, seg in enumerate(batch):
+
+            tasks.append(
+                asyncio.create_task(
+                    process_single_segment(
+                        batch_start + offset,
+                        seg,
+                        bangla[offset] if offset < len(bangla) else english[offset],
+                        temp_dir,
+                        progress_callback,
+                        total_segments
                     )
                 )
+            )
 
-                audio=AudioSegment.from_file(tts_file)
+    
+    print("Translating and generating voices in parallel...")
+    processed_segments = await asyncio.gather(
+        *tasks,
+        return_exceptions=True
+    )
 
-                tts_duration=len(audio)/1000
-                ratio=tts_duration/original_duration
-                bangla=shorter_bangla
+    # Filter out empty/skipped segments
+    processed_segments = [
+        p for p in processed_segments
+        if isinstance(p, dict)
+        ]
 
-            except Exception as e:
-                print(f"Shortening failed {e}")
-                break
-            attempt+=1
+    # 3. Process audio files (Pydub is fast and local, so we do this sequentially)
+    original = AudioSegment.from_file(video_audio)
 
-        target_ms=duration
-        if len(audio)>target_ms: #if original audio is 3s and generate bangala is 4s then going to if block
-            speed_factor=len(audio)/target_ms
-            speed_factor=min(speed_factor,1.20)
+    final = AudioSegment.silent(
+        duration=len(original)
+    )
 
-            audio=speed_change(audio,speed=speed_factor)
+    processed_segments.sort(
+        key=lambda x: x["index"]
+    )
 
-        if len(audio)<target_ms:
-            audio+=AudioSegment.silent(target_ms-len(audio))
+    for item in processed_segments:
 
-        audio=audio[:target_ms]
+        audio = AudioSegment.from_file(
+            item["tts_file"]
+        )
 
-        final=final.overlay(audio,position=start)
-        os.remove(tts_file)
+        final = final.overlay(
+            audio,
+            position=item["start"]
+        )
 
-    final.export(output_audio,format="wav")
+        try:
+            os.remove(item["tts_file"])
+        except OSError:
+            pass
+
+    final.export(
+        output_audio,
+        format="wav"
+    )
+
     return output_audio
 
 
-
-        
-
-
+# Wrapper to run the async dubbing entrypoint from synchronous scripts
+def create_dub(*args, **kwargs):
+    return asyncio.run(create_dub_async(*args, **kwargs))

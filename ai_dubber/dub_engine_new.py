@@ -1,13 +1,12 @@
 import os #Used for working with files and folders.
 from faster_whisper import WhisperModel #Speech to Text converter
 from openai import OpenAI #Text Translation
-from gtts import gTTS #Google Text-to-Speech.
+import asyncio, edge_tts #edge tts
 from pydub import AudioSegment #used for audio manipulation and processing (merge audio,cut audio, add silence, change speed).
+from dotenv import load_dotenv #used for loading environment variables from a .env file
 
-
-
-# here copy and past key 
-API_KEY=("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")
+load_dotenv()
+API_KEY=os.getenv("OPENROUTER_API_KEY")
 client=OpenAI(api_key=API_KEY, base_url="https://openrouter.ai/api/v1")
 
 whisper=WhisperModel("small", device="cpu",compute_type="int8")
@@ -22,61 +21,17 @@ def speed_change(sound, speed=1.0):
     )
     return altered.set_frame_rate(sound.frame_rate)
 
-def translate_batch(texts, batch_size=20):
-    translated = []
-
-    for start in range(0, len(texts), batch_size):
-        batch = texts[start:start + batch_size]
-        print(f"Translating batch {start+1} - {start+len(batch)}")
-
-        numbered = "\n".join(
-            f"{i+1}. {t}" for i, t in enumerate(batch)
-        )
-
-        try:
-            response = client.chat.completions.create(
-                model="openai/gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": """
-You are a professional Bengali dubbing translator.
-
-Translate every numbered sentence into natural Bangla.
-
-Rules:
-- Keep the numbering exactly the same.
-- Do not skip any number.
-- Do not merge sentences.
-- Return only numbered Bangla translations.
-"""
-                    },
-                    {
-                        "role": "user",
-                        "content": numbered
-                    }
-                ]
-            )
-
-            output = response.choices[0].message.content.strip()
-
-            lines = output.split("\n")
-
-            for line in lines:
-                if "." in line:
-                    translated.append(line.split(".", 1)[1].strip())
-
-        except Exception as e:
-            print(e)
-            translated.extend(batch)
-
-    return translated
+async def edge_tts_generate(text, output_file):
+    communicate=edge_tts.Communicate(
+        text=text,
+        voice="bn-BD-NabanitaNeural"
+    )
+    await communicate.save(output_file)
+    
 
 
 
-
-
-def create_dub(video_audio, output_audio, beam_size=5):
+def create_dub(video_audio, output_audio, beam_size=5, progress_callback=None):
     segments, info =whisper.transcribe( #audio divide into segments
         video_audio,
         beam_size=beam_size,
@@ -85,19 +40,14 @@ def create_dub(video_audio, output_audio, beam_size=5):
         language="en"
     )
     segments=list(segments)
-    texts=[]
-    for seg in segments:
-        texts.append(seg.text.strip())
-
-    bangla_texts=translate_batch(texts)
     print(f"total segments: {len(segments)}")
-    print(f"translations: {len(bangla_texts)}")
 
     for i, seg in enumerate(segments):
         print(
             f"{i+1}: {seg.start:.2f} -> {seg.end:.2f} "
             f"({seg.end-seg.start:.2f}s) | {repr(seg.text)}"
         )
+       
 
     original=AudioSegment.from_file(video_audio) #load original audio
     final=AudioSegment.silent(duration=len(original)) #create empty audio We'll place Bangla speech onto this timeline.
@@ -106,6 +56,9 @@ def create_dub(video_audio, output_audio, beam_size=5):
     os.makedirs(temp_dir,exist_ok=True)
 
     for i, seg in enumerate(segments):
+        if progress_callback:
+            progress_callback(i+1, len(segments))
+        
         start=int(seg.start*1000)
         end=int(seg.end*1000)
         duration=end-start
@@ -114,19 +67,50 @@ def create_dub(video_audio, output_audio, beam_size=5):
         if not text:
             continue
 
-        if i< len(bangla_texts):
-            bangla=bangla_texts[i]
-        else:
+
+
+        try:
+            res=client.chat.completions.create( #send request to OpenAI API for translation
+                model="openai/gpt-4.1-mini",
+                max_tokens=2500,
+                messages=[   #First GPT call → Translate English → Natural Bangla.
+                    {
+                    "role":"system",
+                    "content":"""
+You are a professional Bengali dubbing translator.
+Translate the following English text into natural spoken Bangla.
+               
+Rules:
+1. Preserve the exact meaning.
+2. Write as people naturally speak in Bangladesh.
+3. Avoid literal word-for-word translation.
+4. Use short, conversational sentences.
+5. Keep the original emotion and tone.
+6. Make it suitable for voice narration and dubbing.
+7. Do not use overly formal or bookish Bangla.
+8. Do not add or remove information unless necessary for natural speech.
+9. Return only the Bangla translation.
+                    """
+                    },
+                    {"role":"user","content":text}
+                ]
+                #Hello everyone welcome to my channel -> gpt return সবাইকে আমার চ্যানেলে স্বাগতম।
+            )
+            bangla=res.choices[0].message.content.strip()
+        
+        except Exception as e:
+            print(f"Translation failed {e}")
             bangla=text
 
         tts_file=f"{temp_dir}/segment_{i}.mp3" #create tts files
 
-        gtts=gTTS( #genarate bangla voice 
-            text=bangla,
-            lang="bn",
-            slow=False
+        asyncio.run(
+            edge_tts_generate(
+                bangla,
+                tts_file
+            )
         )
-        gtts.save(tts_file)
+
 
         audio=AudioSegment.from_file(tts_file)
         original_duration=max(duration/1000, 0.1)
@@ -138,12 +122,13 @@ def create_dub(video_audio, output_audio, beam_size=5):
 # If Bangla becomes much longer,
 # ask GPT to shorten it while preserving meaning.
         attempt=0
-        max_attempts=0
+        max_attempts=3
 
         while ratio>1.2 and attempt < max_attempts:
             try:
                 short_res=client.chat.completions.create(
-                    model="openai/gpt-4o-mini",
+                    model="openai/gpt-4.1-mini",
+                    max_tokens=500,
                     messages=[
                         {"role":"system",
                          "content":f"""
@@ -164,12 +149,12 @@ Rules:
                 )
                 shorter_bangla=(short_res.choices[0].message.content.strip())
 
-                gtts=gTTS(
-                    text=shorter_bangla,
-                    lang="bn",
-                    slow=False
+                asyncio.run(
+                    edge_tts_generate(
+                        bangla,
+                        tts_file
+                    )
                 )
-                gtts.save(tts_file)
 
                 audio=AudioSegment.from_file(tts_file)
 
