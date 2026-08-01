@@ -1,12 +1,9 @@
 from flask import Flask, jsonify, render_template, request, send_file, flash, redirect
-import os
+import os, asyncio
 import uuid
-import subprocess
-import json
 from threading import Thread
 from dotenv import load_dotenv
 from youtube_downloder import download_video
-#from ai_dubber.edge_dub_engine import create_dub
 from dub_engine import create_dub
 from video_utility import extract_audio, merge_video
 
@@ -19,44 +16,82 @@ OUTPUT_FOLDER="outputs"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-progress={ # Stores progress information for each job
-    "progress":0,
-    "status":"waiting",
-    "segment":"",
-    "finished":False,
-    "filename":""
+progress = {
+    "current": 0,
+    "total": 0,
+    "message": "Waiting...",
+    "percent": 0,
+    "finished": False,
+    "filename": ""
 }
 
-def run_dubbing(url,video_path, audio_path, bangla_audio, output_video): #html/css jonno
+
+def update_progress(current, total, message=""):
+
+    print("UPDATE:", current, total, message)
+
+    progress["current"] = current
+    progress["total"] = total
+
+    if message:
+        progress["message"] = message
+    else:
+        progress["message"] = f"Processing segment {current}/{total}"
+
+    if total > 0:
+        progress["percent"] = 30 + int((current / total) * 60)
+
+def run_dubbing(url, video_path, audio_path, bangla_audio, output_video):
+
     global progress
 
     try:
-        progress["percent"]=0
-        progress["status"]="Downloading..."
+
+        # Download
+        progress["percent"] = 5
+        progress["message"] = "Downloading video..."
         download_video(url, video_path)
 
-        progress["percent"]=40
-        progress["status"]="Extracting Audio..."
+        # Extract audio
+        progress["percent"] = 20
+        progress["message"] = "Extracting audio..."
         extract_audio(video_path, audio_path)
 
-        progress["percent"]=70
-        progress["status"]="Creating Bnagla dub..."
+        # Dub
+        progress["percent"] = 30
+        progress["message"] = "Creating Bangla dub..."
+        progress["current"] = 0
+        progress["total"] = "Preparing..."
 
-        create_dub(
-            video_audio=audio_path,
-            output_audio=bangla_audio,
-            progress_callback=update_progress
+        asyncio.run(
+            create_dub(
+                video_audio=audio_path,
+                output_audio=bangla_audio,
+                progress_callback=update_progress
+                )
+
+        )
+        
+
+        # Merge
+        progress["percent"] = 92
+        progress["message"] = "Merging video..."
+
+        merge_video(
+            video_path,
+            bangla_audio,
+            output_video
         )
 
-        progress["percent"]=90
-        progress["status"]="Merging..."
-        merge_video(video_path, bangla_audio, output_video)
 
-        progress["percent"]=100
-        progress["status"]="Finished"
-        progress["finished"]=True
-        progress["filename"]=os.path.basename(output_video)
-    
+        # Complete
+        progress["percent"] = 100
+        progress["current"] = progress["total"]
+        progress["message"] = "Finished"
+        progress["finished"] = True
+        progress["filename"] = os.path.basename(output_video)
+
+
     finally:
         print("Cleaning up temporary files...")
      
@@ -70,10 +105,7 @@ def run_dubbing(url,video_path, audio_path, bangla_audio, output_video): #html/c
             except Exception as e:
                 print(f"could not delete {f}: {e}")
 
-def update_progress(current, total):
 
-    progress["segment"]=f"Processing segment {current}/{total}"
-    progress["percent"] = 70 + int((current / total) * 20)
 
 @app.route("/")
 def index():
@@ -88,12 +120,13 @@ def dub():
         return redirect("/")
     
     global progress
-    progress={
-        "percent":0,
-        "status":"waiting",
-        "segment":"",
-        "finished":False,
-        "filename":""
+    progress = {
+        "current": 0,
+        "total": 0,
+        "percent": 0,
+        "message": "Waiting...",
+        "finished": False,
+        "filename": ""
     }
     
     job_id=str(uuid.uuid4()) #/kaj ki

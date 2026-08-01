@@ -59,7 +59,7 @@ transition:.5s;
 
 <h3 id="percent">0%</h3>
 
-<h3 id="status">Starting...</h3>
+<h3 id="message">Starting...</h3>
 
 <p id="segment"></p>
 
@@ -76,32 +76,43 @@ let timer = setInterval(update, 1000);
 
 function update() {
 
-    fetch("/progress")
+    fetch("/progress?t=" + new Date().getTime())
     .then(r => r.json())
     .then(data => {
 
-        document.getElementById("bar").style.width = data.percent + "%";
-        document.getElementById("percent").innerHTML = data.percent + "%";
-        document.getElementById("status").innerHTML = data.status;
-        document.getElementById("segment").innerHTML = data.segment;
+    document.getElementById("bar").style.width =
+        data.percent + "%";
 
-        if (data.finished && !downloaded) {
+    document.getElementById("percent").innerHTML =
+        data.percent + "%";
 
-            downloaded = true;
+    document.getElementById("message").innerHTML =
+        data.message;
 
-            clearInterval(timer);
+    document.getElementById("segment").innerHTML =
+        data.current + "/" + data.total;
 
-            const a = document.createElement("a");
-            a.href = "/result/" + data.filename;
-            a.download = "";
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
 
-            document.getElementById("bar").style.width = "100%";
-            document.getElementById("percent").innerHTML = "100%";
-            document.getElementById("status").innerHTML = "✅ Download Completed";
-            document.getElementById("segment").innerHTML = "Your Bangla dubbed video is ready.";
+    if (data.finished && !downloaded) {
+
+        downloaded = true;
+
+        clearInterval(timer);
+
+        const a = document.createElement("a");
+        a.href = "/result/" + data.filename;
+        a.download = "";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        document.getElementById("bar").style.width = "100%";
+        document.getElementById("percent").innerHTML = "100%";
+        document.getElementById("message").innerHTML =
+            "✅ Download Completed";
+
+        document.getElementById("segment").innerHTML =
+            "Your Bangla dubbed video is ready.";
 
             // Show Download Again button
             document.getElementById("downloadBtn").href = "/result/" + data.filename;
