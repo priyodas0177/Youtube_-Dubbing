@@ -29,6 +29,8 @@ client = OpenAI(
 # Use 'cpu' or 'cuda' explicitly. 'auto' can sometimes spend time autodetecting.
 whisper = WhisperModel("small", device="cpu", compute_type="int8")
 
+
+
 SHORTEN_WORKERS=1
 SHORTEN_SEMAPHORE=None
 
@@ -54,7 +56,7 @@ async def edge_tts_generate(text, output_file, retries=3):
             communicate = edge_tts.Communicate(
                 text=text,
                 voice="bn-BD-NabanitaNeural",
-                rate="-5%",
+                rate="+0%",
                 pitch="+0Hz"
             )
 
@@ -536,7 +538,8 @@ async def process_single_segment(
 
         audio.export(
             tts_file,
-            format="mp3"
+            format="mp3",
+            bitrate="192k"
         )
 
         global completed_segments
@@ -548,10 +551,11 @@ async def process_single_segment(
             )
 
             if progress_callback:
+                eta=get_remaining_time(completed_segments, total_segments)
                 progress_callback(
                     completed_segments,
                     total_segments,
-                    f"Creating Bangla dub: segment {completed_segments}/{total_segments}"
+                    f"Creating Bangla dub: segment {completed_segments}/{total_segments} | Remaining: {eta}"
                 )
 
         return {
@@ -570,8 +574,27 @@ async def process_single_segment(
 
         return None
 
+def get_remaining_time(completed, total):
+    if completed == 0:
+        return "Calculating..."
+
+    elapsed = time.time() - process_start_time
+
+    avg_time = elapsed / completed
+
+    remaining = (total - completed) * avg_time
+
+    minutes = int(remaining // 60)
+    seconds = int(remaining % 60)
+
+    if minutes > 0:
+        return f"{minutes}m {seconds}s"
+    else:
+        return f"{seconds}s"
+    
 async def create_dub(video_audio, output_audio, beam_size=2, progress_callback=None):
     # 1. Transcribe (Heavy local CPU/GPU bound task)
+    
     global TTS_SEMAPHORE
     TTS_SEMAPHORE = asyncio.Semaphore(TTS_WORKERS)
 
@@ -597,7 +620,9 @@ async def create_dub(video_audio, output_audio, beam_size=2, progress_callback=N
 
     total_segments = len(segments)
 
-    global completed_segments
+    global process_start_time, completed_segments
+    
+    process_start_time=time.time()
     completed_segments = 0
 
     print(f"Total segments: {total_segments}")
@@ -605,7 +630,7 @@ async def create_dub(video_audio, output_audio, beam_size=2, progress_callback=N
         progress_callback(
             0,
             total_segments,
-            f"Creating Bangla dub: 0/{total_segments}"
+            f"Creating Bangla dub: 0/{total_segments}| Estimating remaining time..."
         )
 
     temp_dir = os.path.join("temp", str(uuid.uuid4()))

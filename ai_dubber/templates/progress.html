@@ -42,6 +42,14 @@ background:#28a745;
 transition:.5s;
 
 }
+#message{
+    color:#333;
+}
+
+#segment{
+    font-size:18px;
+    color:#555;
+}
 
 </style>
 
@@ -89,8 +97,13 @@ function update() {
     document.getElementById("message").innerHTML =
         data.message;
 
+    if (data.total > 0) {
     document.getElementById("segment").innerHTML =
-        data.current + "/" + data.total;
+        "Segments: " + data.current + "/" + data.total;
+    } 
+    else {
+        document.getElementById("segment").innerHTML = "";
+    }
 
 
     if (data.finished && !downloaded) {

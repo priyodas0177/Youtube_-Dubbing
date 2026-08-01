@@ -18,26 +18,37 @@ def extract_audio(video_path, output_audio_path):
     return output_audio_path
 
 def merge_video(video_path, dubbed_audio_path, output_video_path):
+
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video not found: {video_path}")
-    
+
     if not os.path.exists(dubbed_audio_path):
         raise FileNotFoundError(f"Dubbed audio not found: {dubbed_audio_path}")
-    
-    command=["ffmpeg",
-            "-y",       # Overwrite output if it exists
-            "-i",video_path,   # Original video
-            "-i",dubbed_audio_path,    # Bangla audio
 
-            "-map", "0:v",     # Take video from original
-            "-map", "1:a",     # Take audio from dubbed audio
-            "-map", "0:s?",    # Take subtitles from original if they exist
+    command = [
+        "ffmpeg",
+        "-y",
 
-            "-c:v", "copy",    # Don't re-encode video
-            "-c:a", "aac",     # Encode audio to AAC
-            "-shortest",       # Stop when shortest stream ends
+        "-i", video_path,
+        "-i", dubbed_audio_path,
 
-            output_video_path
+        "-map", "0:v",
+        "-map", "1:a",
+
+        "-map", "0:s?",
+
+        "-c:v", "copy",
+
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-ar", "48000",
+        "-ac", "2",
+
+        "-shortest",
+
+        output_video_path
     ]
-    subprocess.run(command,check=True)
+
+    subprocess.run(command, check=True)
+
     return output_video_path

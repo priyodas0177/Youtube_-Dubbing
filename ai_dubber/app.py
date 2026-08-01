@@ -47,6 +47,8 @@ def run_dubbing(url, video_path, audio_path, bangla_audio, output_video):
 
     try:
 
+        progress["finished"] = False
+
         # Download
         progress["percent"] = 5
         progress["message"] = "Downloading video..."
@@ -59,9 +61,9 @@ def run_dubbing(url, video_path, audio_path, bangla_audio, output_video):
 
         # Dub
         progress["percent"] = 30
-        progress["message"] = "Creating Bangla dub..."
+        progress["message"] = "Creating Bangla dub... Estimating remaining time"
         progress["current"] = 0
-        progress["total"] = "Preparing..."
+        progress["total"] = 0
 
         asyncio.run(
             create_dub(
