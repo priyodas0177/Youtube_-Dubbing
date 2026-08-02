@@ -3,42 +3,21 @@ import asyncio
 from faster_whisper import WhisperModel
 import edge_tts
 from pydub import AudioSegment
-from dotenv import load_dotenv
-from openai import OpenAI
-
-load_dotenv()
-
-# GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-
-# client = OpenAI(
-#     base_url="https://models.inference.ai.azure.com",
-#     api_key=GITHUB_TOKEN,
-#     timeout=60,
-#     max_retries=2
-# )
-
-NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
-client = OpenAI(
-    base_url="https://integrate.api.nvidia.com/v1",
-    api_key=NVIDIA_API_KEY,
-    timeout=90,
-    max_retries=2
-)
-
+from myapi_provider import translate_with_fallback
 
 # Use 'cpu' or 'cuda' explicitly. 'auto' can sometimes spend time autodetecting.
 whisper = WhisperModel("small", device="cpu", compute_type="int8")
 
-
-
 SHORTEN_WORKERS=1
 SHORTEN_SEMAPHORE=None
 
-TTS_WORKERS = 3
+TTS_WORKERS = 2
 TTS_SEMAPHORE = None
 
 progress_lock = None
 completed_segments = 0
+
+
 
 def speed_change(sound, speed=1.0):
     altered = sound._spawn(
@@ -55,9 +34,9 @@ async def edge_tts_generate(text, output_file, retries=3):
         try:
             communicate = edge_tts.Communicate(
                 text=text,
-                voice="bn-BD-NabanitaNeural",
+                voice="bn-BD-PradeepNeural",
                 rate="+0%",
-                pitch="+0Hz"
+                pitch="+0Hz" 
             )
 
             await asyncio.wait_for(
@@ -107,27 +86,9 @@ def shorten_translation(bangla, original_duration, retries=3):
     for attempt in range(retries):
 
         try:
-
-   
-            response = client.chat.completions.create(
-
-                model="openai/gpt-oss-120b",
-                
-
-                messages=[
-                    {
-                        "role": "system",
-                        "content": prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": bangla
-                    }
-                ],
-
-                temperature=0.15,
-                top_p=0.85,
-                max_tokens=4096
+            response = translate_with_fallback(
+                system_prompt=prompt,
+                user_prompt=bangla
             )
 
             result = response.choices[0].message.content
@@ -146,7 +107,6 @@ def shorten_translation(bangla, original_duration, retries=3):
 
             if attempt < retries - 1:
                 time.sleep(5 * (attempt + 1))
-
 
     print("Shortening failed, using original Bangla.")
     return bangla
@@ -201,14 +161,8 @@ def merge_segments(segments, max_duration=8):
 
 def _translate_batch_once(texts, start_index):
     
-
     print(f"[{time.strftime('%H:%M:%S')}] START request {start_index+1}-{start_index+len(texts)}")
     print("Thread:", threading.current_thread().name)
-
-    
-    # print(
-    #     f"START TRANSLATION {start_index+1}-{start_index+len(texts)}"
-    # )
 
     prompt = """
                 You are an expert Bengali dubbing translator.
@@ -250,50 +204,25 @@ def _translate_batch_once(texts, start_index):
     SEGMENT_{i}:
     {text}
 
-    """
+    """ 
 
-    print("Before NVIDIA request")
+    print("Before AI request")
+
     try:
 
-        response = client.chat.completions.create(
-
-            model="openai/gpt-oss-120b",
-
-            response_format={
-                "type":"json_object"
-            },
-
-            messages=[
-                {
-                    "role":"system",
-                    "content":prompt
-                },
-                {
-                    "role":"user",
-                    "content":"Translate now."
-                }
-            ],
-
-            temperature=0.15,
-            top_p=0.85,
-            max_tokens=4096,
-
-            timeout=90
+        response = translate_with_fallback(
+            system_prompt=prompt,
+            user_prompt="Translate now.",
+            json_mode=True
         )
+
         print("After NVIDIA request")
         print(f"[{time.strftime('%H:%M:%S')}] END request {start_index+1}-{start_index+len(texts)}")
 
         output = response.choices[0].message.content.strip()
-        print(output)
+        #print(output)
 
-        # remove markdown wrapper
-        # output = re.sub(
-        #     r"```json|```",
-        #     "",
-        #     output
-        # ).strip()
-
-        # parse JSON
+    
         try:
 
             data = json.loads(output)
@@ -329,14 +258,7 @@ def _translate_batch_once(texts, start_index):
         translations = []
 
 
-        # Case 1:
-        # {
-        #   "translations":[
-        #        "...",
-        #        "..."
-        #   ]
-        # }
-
+        
         if isinstance(data, dict):
 
             if "translations" in data:
@@ -346,12 +268,6 @@ def _translate_batch_once(texts, start_index):
 
             else:
 
-                # Case 2:
-                # {
-                # "1":"...",
-                # "2":"..."
-                # }
-
                 for i in range(1, len(texts)+1):
 
                     value = data.get(str(i))
@@ -359,19 +275,9 @@ def _translate_batch_once(texts, start_index):
                     if value:
                         translations.append(value)
 
-
-
-        # Case 3:
-        # [
-        #   "...",
-        #   "..."
-        # ]
-
         elif isinstance(data, list):
 
             translations = data
-
-
 
         # validate count
 
@@ -385,43 +291,54 @@ def _translate_batch_once(texts, start_index):
 
             print(data)
 
-            return []
-
-
+            raise Exception(
+                f"Segment mismatch {len(translations)}/{len(texts)}"
+            )
 
         return [
             str(x).strip()
             for x in translations
         ]
-                
+
+
     except Exception as e:
 
         print("TRANSLATION ERROR")
         print(type(e).__name__)
         print(e)
 
-        return []
+        raise
 
 
-def retry_batch_translation(texts, start_index, retries=0):
-    """
-    Retries the raw API call + parse (NOT translate_batch, to avoid recursive
-    retry-of-retry blowup). Falls back to the original English text if every
-    attempt fails, so the pipeline never crashes.
-    """
+def retry_batch_translation(texts, start_index, retries=2):
+
     for attempt in range(retries):
-        print(f"Retry attempt ❌ {attempt+1} for batch {start_index+1}-{start_index+len(texts)}")
 
-        translations = _translate_batch_once(texts, start_index)
+        print(
+            f"Retry attempt {attempt+1}"
+        )
 
-        if len(translations) == len(texts):
-            return translations
+        try:
+            translations = _translate_batch_once(
+                texts,
+                start_index
+            )
 
-        print(f"Retry attempt ❌ {attempt+1} still mismatched: expected {len(texts)}, got {len(translations)}")
+            if len(translations) == len(texts):
+                return translations
+
+        except Exception as e:
+            print(
+                f"Retry failed: {e}"
+            )
+
         time.sleep(1)
 
-    print(f"Giving up after retries — falling back to English for batch {start_index+1}-{start_index+len(texts)}")
-    return list(texts)  # last resort, guaranteed correct length
+    print(
+        "Using original English fallback"
+    )
+
+    return list(texts)
 
 
 def translate_batch(texts, start_index):
@@ -561,11 +478,8 @@ async def process_single_segment(
         return {
 
             "index": i,
-
             "start": start,
-
             "tts_file": tts_file
-
         }
 
     except Exception as e:
@@ -636,7 +550,7 @@ async def create_dub(video_audio, output_audio, beam_size=2, progress_callback=N
     temp_dir = os.path.join("temp", str(uuid.uuid4()))
     os.makedirs(temp_dir, exist_ok=True)
 
-    # 2. Parallel translation & TTS generation (Huge speedup here!)
+    # 2. Batch translation + parallel TTS generation
     # We create async tasks for all segments and run them concurrently
     tasks = []
 
@@ -712,15 +626,13 @@ async def create_dub(video_audio, output_audio, beam_size=2, progress_callback=N
 
     print("=========================================\n")
 
-
-    print("\nCHECK TRANSLATION ALIGNMENT")
-
-    for i in range(total_segments):
-
-        #not needed
-        print(f"{i+1}: {segments[i]['text'].strip()}")
-        print(f" -> {all_translations[i]}")
-        #not needed
+    #not needed
+   
+#     print("\nCHECK TRANSLATION ALIGNMENT")
+#     for i in range(total_segments):
+#         print(f"{i+1}: {segments[i]['text'].strip()}")
+#         print(f" -> {all_translations[i]}")
+    #not needed
 
     # Check empty translations
     for i, text in enumerate(all_translations):

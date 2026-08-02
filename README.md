@@ -1,9 +1,12 @@
+
 # AI Video Dubbing System
+
 An AI-powered video dubbing application that automatically converts English videos into Bangla dubbed videos using Artificial Intelligence.
 
 ## 🚀 Features
 
 ### 🎬 Video Processing
+
 - Download video files and process locally
 - Extract audio from video
 - Merge generated Bangla audio with original video
@@ -11,10 +14,12 @@ An AI-powered video dubbing application that automatically converts English vide
 - Automatic temporary file cleanup
 
 ### 📝 Speech Recognition
+
 - Uses Whisper AI for speech-to-text conversion
 - Generates timestamp-based segments
 
 ### 🌐 AI Translation
+
 - Converts English speech into natural Bangladeshi Bangla
 - Uses Large Language Models (LLMs)
 - Batch translation support for faster processing
@@ -28,6 +33,7 @@ An AI-powered video dubbing application that automatically converts English vide
 - Adjusts audio timing to match original speech
 
 ### ⚡ Performance Optimization
+
 - Batch AI translation for faster processing
 - Optimized Whisper inference using CPU acceleration
 - Audio duration checking and adjustment
@@ -35,6 +41,7 @@ An AI-powered video dubbing application that automatically converts English vide
 - Automatic temporary file cleanup
 
 ### 🌐 Web Interface
+
 - Flask-based web application
 - Upload video
 - Real-time processing progress
@@ -103,32 +110,40 @@ An AI-powered video dubbing application that automatically converts English vide
 # 🛠️ Technologies Used
 
 ## Programming Language
+
 - Python 3.11+
 
 ## Backend
+
 - Flask
 
 ## AI Models
 
 ### Speech Recognition
+
 - Faster Whisper
 
 ### Translation
+
 - Large Language Models through NVIDIA API
 
 Example models:
+
 - gpt-oss-120b
 - Llama 3.3 70B
 - Other compatible LLM models
 
 ### Text To Speech
+
 - Google Text-to-Speech (EDGE TTS)
 
 ## Video Processing
+
 - FFmpeg
 - Pydub
 
 ## Database
+
 - MySQL (optional)
 
 ---
@@ -198,20 +213,24 @@ Example:
 # 🚀 Future Improvements
 
 ## Voice & Audio
+
 - Add AI voice cloning
 - Speaker identification
 - Emotion-aware dubbing
 
 ## Video Synchronization
+
 - Add lip-sync technology
 - Automatic mouth movement matching
 
 ## AI Improvements
+
 - Better translation models
 - Context-aware subtitle translation
 - Character-specific voices
 
 ## Deployment
+
 - Cloud deployment
 - GPU acceleration
 - User authentication
@@ -229,7 +248,7 @@ The goal of this project is to build an automated AI dubbing platform capable of
 
 **Horish Das Priyo**
 
-Computer Science Student  
+Computer Science Student
 AI & Software Development Enthusiast
 
 ---
