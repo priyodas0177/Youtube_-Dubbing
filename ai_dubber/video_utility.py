@@ -17,13 +17,25 @@ def extract_audio(video_path, output_audio_path):
     subprocess.run(command,check=True)
     return output_audio_path
 
-def merge_video(video_path, dubbed_audio_path, output_video_path):
+def merge_video(
+    video_path,
+    dubbed_audio_path,
+    output_video_path,
+    subtitle_choice=None,
+    bangla_subtitle=None,
+    english_subtitle=None
+):
 
     if not os.path.exists(video_path):
-        raise FileNotFoundError(f"Video not found: {video_path}")
+        raise FileNotFoundError(
+            f"Video not found: {video_path}"
+        )
 
     if not os.path.exists(dubbed_audio_path):
-        raise FileNotFoundError(f"Dubbed audio not found: {dubbed_audio_path}")
+        raise FileNotFoundError(
+            f"Dubbed audio not found: {dubbed_audio_path}"
+        )
+
 
     command = [
         "ffmpeg",
@@ -31,24 +43,97 @@ def merge_video(video_path, dubbed_audio_path, output_video_path):
 
         "-i", video_path,
         "-i", dubbed_audio_path,
+    ]
 
-        "-map", "0:v",
-        "-map", "1:a",
 
-        "-map", "0:s?",
+    # Add selected subtitle input
 
-        "-c:v", "copy",
+    subtitle_input = None
 
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-ar", "48000",
-        "-ac", "2",
 
+    if subtitle_choice == "bangla":
+
+        if os.path.exists(bangla_subtitle):
+            command += [
+                "-i",
+                bangla_subtitle
+            ]
+
+            subtitle_input = "bangla"
+
+
+
+    elif subtitle_choice == "english":
+
+        if os.path.exists(english_subtitle):
+            command += [
+                "-i",
+                english_subtitle
+            ]
+
+            subtitle_input = "english"
+
+
+
+    command += [
+        "-map",
+        "0:v",
+
+        "-map",
+        "1:a",
+    ]
+
+
+    # Map subtitle
+
+    if subtitle_input:
+
+        command += [
+            "-map",
+            "2:0"
+        ]
+
+
+    command += [
+
+        "-c:v",
+        "copy",
+
+        "-c:a",
+        "aac",
+
+        "-b:a",
+        "192k",
+
+        "-ar",
+        "48000",
+
+        "-ac",
+        "2",
+    ]
+
+
+    if subtitle_input:
+        command += [
+            "-c:s",
+            "mov_text"
+        ]
+
+
+    command += [
         "-shortest",
-
         output_video_path
     ]
 
-    subprocess.run(command, check=True)
+
+    print("FFMPEG COMMAND:")
+    print(" ".join(command))
+
+
+    subprocess.run(
+        command,
+        check=True
+    )
+
 
     return output_video_path

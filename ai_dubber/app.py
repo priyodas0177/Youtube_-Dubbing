@@ -41,9 +41,13 @@ def update_progress(current, total, message=""):
     if total > 0:
         progress["percent"] = 30 + int((current / total) * 60)
 
-def run_dubbing(url, video_path, audio_path, bangla_audio, output_video):
+def run_dubbing(url, video_path, audio_path, bangla_audio, output_video, subtitle):
 
     global progress
+
+    # initialize first
+    english_subtitle = None
+    bangla_subtitle = None
 
     try:
 
@@ -52,37 +56,64 @@ def run_dubbing(url, video_path, audio_path, bangla_audio, output_video):
         # Download
         progress["percent"] = 5
         progress["message"] = "Downloading video..."
+
         download_video(url, video_path)
+
 
         # Extract audio
         progress["percent"] = 20
         progress["message"] = "Extracting audio..."
+
         extract_audio(video_path, audio_path)
+
 
         # Dub
         progress["percent"] = 30
-        progress["message"] = "Creating Bangla dub... Estimating remaining time"
+        progress["message"] = "Creating Bangla dub..."
         progress["current"] = 0
         progress["total"] = 0
 
-        asyncio.run(
+
+        dub_result = asyncio.run(
             create_dub(
                 video_audio=audio_path,
                 output_audio=bangla_audio,
                 progress_callback=update_progress
-                )
-
+            )
         )
-        
+
+
+        # get subtitle files
+        english_subtitle = dub_result["english_subtitle"]
+        bangla_subtitle = dub_result["bangla_subtitle"]
+
+
+        # Apply user selection
+
+        selected_bangla = None
+        selected_english = None
+
+
+        if subtitle == "bangla":
+            selected_bangla = bangla_subtitle
+
+
+        elif subtitle == "english":
+            selected_english = english_subtitle
+
+
 
         # Merge
         progress["percent"] = 92
         progress["message"] = "Merging video..."
 
+
         merge_video(
             video_path,
             bangla_audio,
-            output_video
+            output_video,
+            selected_bangla,
+            selected_english
         )
 
 
@@ -94,18 +125,28 @@ def run_dubbing(url, video_path, audio_path, bangla_audio, output_video):
         progress["filename"] = os.path.basename(output_video)
 
 
+
     finally:
+
         print("Cleaning up temporary files...")
-     
-        for f in [video_path, audio_path, bangla_audio]:
-            try:
-                if os.path.exists(f):
+
+
+        for f in [
+            video_path,
+            audio_path,
+            bangla_audio,
+            english_subtitle,
+            bangla_subtitle
+        ]:
+
+            if f and os.path.exists(f):
+
+                try:
                     os.remove(f)
-                    print(f"Deleted filesL {f}")
-                else:
-                    print(f"Not found:{f}")
-            except Exception as e:
-                print(f"could not delete {f}: {e}")
+                    print(f"Deleted file: {f}")
+
+                except Exception as e:
+                    print(f"Could not delete {f}: {e}")
 
 
 
@@ -120,6 +161,9 @@ def dub():
     if not url:
         flash("please enter a youtube url: ")
         return redirect("/")
+
+    subtitle=request.form.get("subtitle_option" )
+    print("Selected subtitle:", subtitle)
     
     global progress
     progress = {
@@ -140,7 +184,7 @@ def dub():
 
     Thread (
         target=run_dubbing,
-        args=(url,video_path, audio_path, bangla_audio, output_video)
+        args=(url,video_path, audio_path, bangla_audio, output_video, subtitle)
     ).start()
     return render_template("progress.html")
 

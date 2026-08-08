@@ -11,6 +11,7 @@
 
 </head>
 
+
 <body class="bg-light">
 
 <div class="container mt-5">
@@ -20,6 +21,7 @@
         <h1 class="text-center mb-4">
             AI YouTube Bangla Dubbing
         </h1>
+
 
         {% with messages = get_flashed_messages() %}
             {% if messages %}
@@ -33,7 +35,10 @@
             {% endif %}
         {% endwith %}
 
+
+
         <form action="/dub" method="POST">
+
 
             <div class="mb-3">
 
@@ -50,6 +55,43 @@
 
             </div>
 
+
+
+            <!-- Subtitle Selection -->
+
+            <div class="mb-3">
+
+                <label class="form-label">
+                    Subtitle Language
+                </label>
+
+
+                <select 
+                    class="form-select"
+                    name="subtitle">
+
+
+                    <option value="none">
+                        No Subtitle
+                    </option>
+
+
+                    <option value="bangla">
+                        Bangla Subtitle
+                    </option>
+
+
+                    <option value="english">
+                        English Subtitle
+                    </option>
+
+
+                </select>
+
+            </div>
+
+
+
             <button
                 class="btn btn-primary w-100">
 
@@ -57,11 +99,14 @@
 
             </button>
 
+
         </form>
+
 
     </div>
 
 </div>
+
 
 </body>
 

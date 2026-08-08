@@ -4,6 +4,7 @@ from faster_whisper import WhisperModel
 import edge_tts
 from pydub import AudioSegment
 from myapi_provider import translate_with_fallback
+from subtitle_generator import create_srt
 
 # Use 'cpu' or 'cuda' explicitly. 'auto' can sometimes spend time autodetecting.
 whisper = WhisperModel("small", device="cpu", compute_type="int8")
@@ -401,7 +402,7 @@ async def process_single_segment(
 
         attempt = 0
 
-        while ratio > 1.40 and attempt < 1:
+        while ratio > 1.40 and attempt < 2:
 
             async with SHORTEN_SEMAPHORE:
                 bangla = await asyncio.to_thread(
@@ -526,6 +527,7 @@ async def create_dub(video_audio, output_audio, beam_size=2, progress_callback=N
         language="en",   
     )
     segments = list(segments)
+    original_segments = segments.copy()
 
     segments = merge_segments(
         segments,
@@ -588,6 +590,14 @@ async def create_dub(video_audio, output_audio, beam_size=2, progress_callback=N
         raise ValueError(
             f"Final translation mismatch. Expected {total_segments}, got {len(all_translations)}"
         )
+
+    english_subtitle=os.path.join(temp_dir, "english.srt")
+    bangla_subtitle=os.path.join(temp_dir,"bangla.srt")
+
+    create_srt(original_segments,[s.text for s in original_segments],english_subtitle)
+    create_srt(segments, all_translations,bangla_subtitle)
+    print("English Subtitle: ",english_subtitle)
+    print("Bangla Subtitle: ",bangla_subtitle)
 
     print("\n===== CHECK FOR ENGLISH TRANSLATIONS =====")
 
@@ -711,4 +721,4 @@ async def create_dub(video_audio, output_audio, beam_size=2, progress_callback=N
     print("FINAL AUDIO PATH:", output_audio)
     print("FINAL AUDIO EXISTS:", os.path.exists(output_audio))
 
-    return output_audio
+    return {"audio": output_audio, "english_subtitle": english_subtitle, "bangla_subtitle": bangla_subtitle}
